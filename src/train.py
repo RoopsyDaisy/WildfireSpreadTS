@@ -42,9 +42,16 @@ class MyLightningCLI(LightningCLI):
 
         # The exact positive class weight changes with the data fold in the data module, but the weight is needed to instantiate the model.
         # Non-fire pixels are marked as missing values in the active fire feature, so we simply use that to compute the positive class weight.
-        train_years, _, _ = FireSpreadDataModule.split_fires(
-            self.config.data.data_fold_id, self.config.data.additional_data)
-        _, _, missing_values_rates = get_means_stds_missing_values(train_years)
+        if getattr(self.config.data, "split_strategy", "spatial") == "spatial":
+            stats_years = getattr(self.config.data, "stats_years", None)
+            if stats_years is None:
+                stats_years = FireSpreadDataModule.get_available_years(self.config.data.data_dir)
+        else:
+            train_years, _, _ = FireSpreadDataModule.split_fires_by_year(
+                self.config.data.data_fold_id, self.config.data.additional_data)
+            stats_years = getattr(self.config.data, "stats_years", None) or train_years
+
+        _, _, missing_values_rates = get_means_stds_missing_values(stats_years)
         fire_rate = 1 - missing_values_rates[-1]
         pos_class_weight = float(1 / fire_rate)
 

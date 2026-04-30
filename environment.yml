@@ -1,0 +1,24 @@
+name: wsts_wrf_gpu
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+dependencies:
+  - python=3.10
+  - pip
+  - gdal
+  - rasterio
+  - geopandas
+  - pyproj
+  - shapely
+  - fiona
+  - netcdf4
+  - h5netcdf
+  - xarray
+  - zarr
+  - scipy
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.1
+  - pip:
+      - -r requirements-gpu.txt

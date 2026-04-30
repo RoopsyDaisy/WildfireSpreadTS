@@ -5,7 +5,6 @@ import rasterio
 from torch.utils.data import Dataset
 import torch
 import numpy as np
-from torch.utils.data.dataset import T_co
 import glob
 import warnings
 from .utils import get_means_stds_missing_values, get_indices_of_degree_features
@@ -13,28 +12,38 @@ import torchvision.transforms.functional as TF
 import h5py
 from datetime import datetime
 
+try:
+    import zarr
+except ImportError:
+    zarr = None
+
 
 class FireSpreadDataset(Dataset):
-    def __init__(self, data_dir: str, included_fire_years: List[int], n_leading_observations: int,
+    def __init__(self, data_dir: str, included_fire_years: Optional[List[int]], n_leading_observations: int,
                  crop_side_length: int, load_from_hdf5: bool, is_train: bool, remove_duplicate_features: bool,
-                 stats_years: List[int], n_leading_observations_test_adjustment: Optional[int] = None, 
-                 features_to_keep: Optional[List[int]] = None, return_doy: bool = False, is_pad: Optional[bool] = False):
+                 stats_years: Optional[List[int]], n_leading_observations_test_adjustment: Optional[int] = None,
+                 features_to_keep: Optional[List[int]] = None, return_doy: bool = False, is_pad: Optional[bool] = False,
+                 included_fire_ids: Optional[List[tuple]] = None, skip_stats: bool = False,
+                 load_from_zarr: bool = False):
         """_summary_
 
         Args:
             data_dir (str): _description_ Root directory of the dataset, should contain several folders, each corresponding to a different fire.
-            included_fire_years (List[int]): _description_ Years in dataset_root that should be used in this instance of the dataset.
+            included_fire_years (Optional[List[int]]): _description_ Years in dataset_root that should be used in this instance of the dataset.
             n_leading_observations (int): _description_ Number of days to use as input observation. 
             crop_side_length (int): _description_ The side length of the random square crops that are computed during training and validation.
-            load_from_hdf5 (bool): _description_ If True, load data from HDF5 files instead of TIF. 
+            load_from_hdf5 (bool): _description_ If True, load data from HDF5 files instead of TIF.
             is_train (bool): _description_ Whether this dataset is used for training or not. If True, apply geometric data augmentations. If False, only apply center crop to get the required dimensions.
             remove_duplicate_features (bool): _description_ Remove duplicate static features from all time steps but the last one. Requires flattening the temporal dimension, since after removal, the number of features is not the same across time steps anymore.
-            stats_years (List[int]): _description_ Which years to use for computing the mean and standard deviation of each feature. This is important for the test set, which should be standardized using the same statistics as the training set.
+            stats_years (Optional[List[int]]): _description_ Which years to use for computing the mean and standard deviation of each feature. This is important for the test set, which should be standardized using the same statistics as the training set.
             n_leading_observations_test_adjustment (Optional[int], optional): _description_. Adjust the test set to look like it would with n_leading_observations set to this value. 
         In practice, this means that if n_leading_observations is smaller than this value, some samples are skipped. Defaults to None. If None, nothing is skipped. This is especially used for the train and val set. 
             features_to_keep (Optional[List[int]], optional): _description_. List of feature indices from 0 to 39, indicating which features to keep. Defaults to None, which means using all features.
             return_doy (bool, optional): _description_. Return the day of the year per time step, as an additional feature. Defaults to False.
             is_pad (book, optional): _description_. Whether to zero-pad image to 224x224 for SwinUnet/TransUnet
+            included_fire_ids (Optional[List[tuple]], optional): _description_. Optional list of (year, fire_name) tuples to include.
+            skip_stats (bool, optional): _description_. If True, skip loading precomputed stats and avoid standardization.
+            load_from_zarr (bool, optional): _description_. If True, load data from Zarr stores instead of TIF.
         Raises:
             ValueError: _description_ Raised if input values are not in the expected ranges.
         """
@@ -46,12 +55,15 @@ class FireSpreadDataset(Dataset):
         self.remove_duplicate_features = remove_duplicate_features
         self.is_train = is_train
         self.load_from_hdf5 = load_from_hdf5
+        self.load_from_zarr = load_from_zarr
         self.crop_side_length = crop_side_length
         self.n_leading_observations = n_leading_observations
         self.n_leading_observations_test_adjustment = n_leading_observations_test_adjustment
         self.included_fire_years = included_fire_years
+        self.included_fire_ids = included_fire_ids
         self.data_dir = data_dir
         self.is_pad = is_pad
+        self.skip_stats = skip_stats
 
         self.validate_inputs()
 
@@ -73,10 +85,17 @@ class FireSpreadDataset(Dataset):
         # Used in preprocessing and normalization. Better to define it once than build/call for every data point
         # The one-hot matrix is used for one-hot encoding of land cover classes
         self.one_hot_matrix = torch.eye(17)
-        self.means, self.stds, _ = get_means_stds_missing_values(self.stats_years)
-        self.means = self.means[None, :, None, None]
-        self.stds = self.stds[None, :, None, None]
+        if not self.skip_stats:
+            self.means, self.stds, _ = get_means_stds_missing_values(self.stats_years)
+            self.means = self.means[None, :, None, None]
+            self.stds = self.stds[None, :, None, None]
+        else:
+            self.means, self.stds = None, None
         self.indices_of_degree_features = get_indices_of_degree_features()
+
+    @property
+    def load_from_store(self) -> bool:
+        return self.load_from_hdf5 or self.load_from_zarr
 
     def find_image_index_from_dataset_index(self, target_id) -> (int, str, int):
         """_summary_ Given the index of a data point in the dataset, find the corresponding fire that contains it, 
@@ -148,6 +167,19 @@ class FireSpreadDataset(Dataset):
             x, y = np.split(imgs, [-1], axis=0)
             # Last image's active fire mask is used as label, rest is input data
             y = y[0, -1, ...]
+        elif self.load_from_zarr:
+            if zarr is None:
+                raise ImportError("zarr is required when load_from_zarr=True.")
+            zarr_path = self.imgs_per_fire[found_fire_year][found_fire_name][0]
+            root = zarr.open_group(str(zarr_path), mode='r')
+            data = root["data"]
+            imgs = data[in_fire_index:end_index]
+            if self.return_doy:
+                doys = data.attrs["img_dates"][in_fire_index:(end_index - 1)]
+                doys = self.img_dates_to_doys(doys)
+                doys = torch.Tensor(doys)
+            x, y = np.split(imgs, [-1], axis=0)
+            y = y[0, -1, ...]
         else:
             imgs_to_load = self.imgs_per_fire[found_fire_year][found_fire_name][in_fire_index:end_index]
             imgs = []
@@ -196,9 +228,13 @@ class FireSpreadDataset(Dataset):
     def validate_inputs(self):
         if self.n_leading_observations < 1:
             raise ValueError("Need at least one day of observations.")
-        if self.return_doy and not self.load_from_hdf5:
+        if self.load_from_hdf5 and self.load_from_zarr:
+            raise ValueError("Only one of load_from_hdf5 or load_from_zarr can be True.")
+        if not self.skip_stats and not self.stats_years:
+            raise ValueError("stats_years must be provided unless skip_stats is True.")
+        if self.return_doy and not self.load_from_store:
             raise NotImplementedError(
-                "Returning day of year is only implemented for hdf5 files.")
+                "Returning day of year is only implemented for HDF5 or Zarr files.")
         if self.n_leading_observations_test_adjustment is not None:
             if self.n_leading_observations_test_adjustment < self.n_leading_observations:
                 raise ValueError(
@@ -217,14 +253,28 @@ class FireSpreadDataset(Dataset):
             b) the individual hdf5 file for each fire.
         """
         imgs_per_fire = {}
-        for fire_year in self.included_fire_years:
+        included_fire_ids = None
+        if self.included_fire_ids is not None:
+            included_fire_ids = set((int(year), name) for year, name in self.included_fire_ids)
+
+        if self.included_fire_years is not None:
+            years = self.included_fire_years
+        elif included_fire_ids is not None:
+            years = sorted({year for year, _ in included_fire_ids})
+        else:
+            years = sorted([int(p.name) for p in Path(self.data_dir).iterdir()
+                            if p.is_dir() and p.name.isdigit()])
+
+        for fire_year in years:
             imgs_per_fire[fire_year] = {}
 
-            if not self.load_from_hdf5:
+            if not self.load_from_store:
                 fires_in_year = glob.glob(f"{self.data_dir}/{fire_year}/*/")
                 fires_in_year.sort()
                 for fire_dir_path in fires_in_year:
                     fire_name = fire_dir_path.split("/")[-2]
+                    if included_fire_ids is not None and (fire_year, fire_name) not in included_fire_ids:
+                        continue
                     fire_img_paths = glob.glob(f"{fire_dir_path}/*.tif")
                     fire_img_paths.sort()
                     
@@ -233,13 +283,24 @@ class FireSpreadDataset(Dataset):
                     if len(fire_img_paths) == 0:
                         warnings.warn(f"In dataset preparation: Fire {fire_year}: {fire_name} contains no images.",
                                       RuntimeWarning)
-            else:
+            elif self.load_from_hdf5:
                 fires_in_year = glob.glob(
                     f"{self.data_dir}/{fire_year}/*.hdf5")
                 fires_in_year.sort()
                 for fire_hdf5 in fires_in_year:
                     fire_name = Path(fire_hdf5).stem
+                    if included_fire_ids is not None and (fire_year, fire_name) not in included_fire_ids:
+                        continue
                     imgs_per_fire[fire_year][fire_name] = [fire_hdf5]
+            else:
+                fires_in_year = glob.glob(
+                    f"{self.data_dir}/{fire_year}/*.zarr")
+                fires_in_year.sort()
+                for fire_zarr in fires_in_year:
+                    fire_name = Path(fire_zarr).stem
+                    if included_fire_ids is not None and (fire_year, fire_name) not in included_fire_ids:
+                        continue
+                    imgs_per_fire[fire_year][fire_name] = [fire_zarr]
 
         return imgs_per_fire
 
@@ -254,15 +315,23 @@ class FireSpreadDataset(Dataset):
         for fire_year in self.imgs_per_fire:
             datapoints_per_fire[fire_year] = {}
             for fire_name, fire_imgs in self.imgs_per_fire[fire_year].items():
-                if not self.load_from_hdf5:
+                if not self.load_from_store:
                     n_fire_imgs = len(fire_imgs) - self.skip_initial_samples
-                else:
+                elif self.load_from_hdf5:
                     # Catch error case that there's no file
                     if not fire_imgs:
                         n_fire_imgs = 0
                     else:
                         with h5py.File(fire_imgs[0], 'r') as f:
                             n_fire_imgs = len(f["data"]) - self.skip_initial_samples
+                else:
+                    if not fire_imgs:
+                        n_fire_imgs = 0
+                    else:
+                        if zarr is None:
+                            raise ImportError("zarr is required when load_from_zarr=True.")
+                        root = zarr.open_group(str(fire_imgs[0]), mode='r')
+                        n_fire_imgs = len(root["data"]) - self.skip_initial_samples
                 # If we have two days of observations, and a lead of one day,
                 # we can only predict the second day's fire mask, based on the first day's observation
                 datapoints_in_fire = n_fire_imgs - self.n_leading_observations
@@ -287,6 +356,9 @@ class FireSpreadDataset(Dataset):
         Returns:
             _type_: _description_ Standardized input data, of shape (time_steps, features, height, width)
         """
+
+        if self.means is None or self.stds is None:
+            return x
 
         x = (x - self.means) / self.stds
 
@@ -313,7 +385,7 @@ class FireSpreadDataset(Dataset):
         x, y = torch.Tensor(x), torch.Tensor(y)
 
         # Preprocessing that has been done in HDF files already
-        if not self.load_from_hdf5:
+        if not self.load_from_store:
 
             # Active fire masks have nans where no detections occur. In general, we want to replace NaNs with
             # the mean of the respective feature. Since the NaNs here don't represent missing values, we replace
@@ -595,8 +667,8 @@ class FireSpreadDataset(Dataset):
                 21: 'forecast specific humidity',
                 22: 'active fire'}
 
-    def get_generator_for_hdf5(self):
-        """_summary_ Creates a generator that is used to turn the dataset into HDF5 files. It applies a few 
+    def get_generator_for_storage(self):
+        """_summary_ Creates a generator that is used to turn the dataset into HDF5 or Zarr files. It applies a few
         preprocessing steps to the active fire features that need to be applied anyway, to save some computation.
 
         Yields:
@@ -629,3 +701,6 @@ class FireSpreadDataset(Dataset):
                 # Turn active fire detection time from hhmm to hh.
                 x[:, -1, ...] = np.floor_divide(x[:, -1, ...], 100)
                 yield year, fire_name, img_dates, lnglat, x
+
+    def get_generator_for_hdf5(self):
+        return self.get_generator_for_storage()

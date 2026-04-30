@@ -15,7 +15,7 @@ metric:
   name: test_AP
 parameters:
   data.data_dir:
-    value: /develop/data/WildfireSpreadTS_HDF5
+    value: /develop/data/WildfireSpreadTS_Zarr
   optimizer.lr:
     value: 0.001
   model.init_args.encoder_weights:

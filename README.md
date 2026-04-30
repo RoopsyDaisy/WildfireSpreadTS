@@ -114,13 +114,13 @@ If you use this fork or the WSTS+ benchmark, please consider citing:
 
 ## Preparing the dataset
 
-The dataset is freely available at [https://doi.org/10.5281/zenodo.8006177](https://doi.org/10.5281/zenodo.8006177) under CC-BY-4.0. For training, you will need to convert them to HDF5 files, which take up twice as much space but allow for much faster training.
+The dataset is freely available at [https://doi.org/10.5281/zenodo.8006177](https://doi.org/10.5281/zenodo.8006177) under CC-BY-4.0. For training, you should convert it to Zarr stores, which are much faster than reading TIFFs directly and avoid the HDF5 workflow.
 
-To convert the dataset to HDF5, run:
-```python3 src/preprocess/CreateHDF5Dataset.py --data_dir YOUR_DATA_DIR --target_dir YOUR_TARGET_DIR```
- substituting the path to your local dataset and where you want the HDF5 version of the dataset to be created. 
+To convert the dataset to Zarr, run:
+```python3 src/preprocess/CreateZarrDataset.py --data_dir YOUR_DATA_DIR --target_dir YOUR_TARGET_DIR```
+ substituting the path to your local dataset and where you want the Zarr version of the dataset to be created.
 
-If you want to skip this step, and simply pass `--data.load_from_hdf5=False` on the command line, but be aware that you won't be able to perform training at any reasonable speed. 
+If you want to skip this step, simply pass `--data.load_from_hdf5=False --data.load_from_zarr=False` on the command line, but be aware that you won't be able to perform training at any reasonable speed.
 
 ## Re-running the baseline experiments
 
@@ -135,7 +135,7 @@ For example, to train the U-net architecture on one day of observations, which i
 ```
 python3 train.py --config=cfgs/unet/res18_monotemporal.yaml --trainer=cfgs/trainer_single_gpu.yaml --data=cfgs/data_monotemporal_full_features.yaml --data.data_dir YOUR_DATA_DIR
 ```
-where you replace `YOUR_DATA_DIR` with the path to your local HDF5 dataset. Alternatively, you can permanently set the data directory in the respective data config files. Later arguments overwrite previously given arguments, including parameters defined in config files. 
+where you replace `YOUR_DATA_DIR` with the path to your local Zarr dataset. Alternatively, you can permanently set the data directory in the respective data config files. Later arguments overwrite previously given arguments, including parameters defined in config files.
 ## Citation
 
 ```

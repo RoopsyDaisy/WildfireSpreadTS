@@ -1,0 +1,22 @@
+# environment-joining.yml
+name: wsts_join
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - h5py
+  - zarr
+  - tqdm
+  - xarray
+  - netcdf4
+  - h5netcdf
+  - scipy
+  - gdal
+  - rasterio
+  - geopandas
+  - pyproj
+  - shapely
+  - fiona
