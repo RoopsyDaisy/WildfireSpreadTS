@@ -11,7 +11,7 @@ run_in_project_env() {
   shift
   local pythonpath="$REPO_ROOT:$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
-  if [[ -f /run/.containerenv ]]; then
+  if [[ -f /run/.containerenv || -f /.dockerenv || "${PROJECT_IN_CONTAINER:-}" == "1" ]]; then
     (
       cd "$REPO_ROOT"
       env PYTHONPATH="$pythonpath" conda run -n "$env_name" "$@"
