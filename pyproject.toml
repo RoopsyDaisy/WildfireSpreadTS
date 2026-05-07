@@ -57,6 +57,12 @@ dev = [
 [tool.uv]
 default-groups = ["dev"]
 
+# wrf-python's sdist doesn't declare numpy as a build dep but imports it in
+# setup.py. Declare it here so resolution/build works even when the [wrf]
+# extra isn't selected for install.
+[tool.uv.extra-build-dependencies]
+wrf-python = ["numpy"]
+
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
 torchvision = { index = "pytorch-cu124" }
