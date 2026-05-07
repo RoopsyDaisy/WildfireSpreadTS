@@ -1,0 +1,86 @@
+[project]
+name = "wrf-wildfire-spread"
+version = "0.0.1"
+description = "WRF-augmented wildfire spread prediction (extends WildfireSpreadTS / WSTS+)"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    # Geospatial + dataset I/O
+    "rasterio>=1.3",
+    "geopandas>=0.14",
+    "pyproj>=3.6",
+    "shapely>=2.0",
+    "fiona>=1.9",
+    "netcdf4>=1.6",
+    "h5netcdf>=1.3",
+    "h5py>=3.10",
+    "xarray>=2024.1",
+    "zarr>=2.18,<3.0",
+    "scipy>=1.11",
+
+    # Numerics + DataFrames
+    "numpy>=1.26,<2.0",
+    "pandas>=2.0",
+
+    # ML stack — modernised from WSTS+'s pinned torch 2.0
+    "torch>=2.5,<3.0",
+    "torchvision>=0.20,<1.0",
+    "torchmetrics>=1.4",
+    "pytorch-lightning>=2.4,<3.0",
+    "segmentation-models-pytorch>=0.3.4",
+    "einops>=0.7",
+
+    # Experiment tracking + utilities
+    "wandb>=0.17",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+    "imageio>=2.34",
+    "scikit-learn>=1.4",
+    "opencv-python>=4.9",
+    "jsonargparse[signatures]>=4.27",
+]
+
+[project.optional-dependencies]
+notebooks = ["jupyterlab>=4.0", "ipykernel>=6.29"]
+# wrf-python is brittle on modern Python; optional so install can skip if it
+# fails. BuildWRFWSTS.py guards its import already.
+wrf = ["wrf-python>=1.3"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8.0",
+]
+
+# -----------------------------------------------------------------------------
+# uv config — pull torch/torchvision from PyTorch's CUDA 12.4 wheel index
+# -----------------------------------------------------------------------------
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+# -----------------------------------------------------------------------------
+# Linting / formatting
+# -----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 99
+target-version = "py310"
+exclude = [
+    ".venv",
+    "__pycache__",
+    "WildfireSpreadTS",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["E501"]  # line-length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"

@@ -16,3 +16,18 @@ node_modules/
 
 .DS_Store
 lightning_logs/
+
+# Caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Experiment tracking
+wandb/
+
+# Stray runtime artifacts that have been committed historically
+.nvimlog
+.codex
+
+# Claude Code user-local overrides (project defaults live in .claude/settings.json)
+.claude/settings.local.json

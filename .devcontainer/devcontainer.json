@@ -1,0 +1,56 @@
+{
+  "name": "${localWorkspaceFolderBasename}",
+
+  "build": { "dockerfile": "../Dockerfile", "context": ".." },
+
+  // Keep container running when VS Code disconnects (for long-running training jobs)
+  "shutdownAction": "none",
+
+  "runArgs": [
+    "--device=nvidia.com/gpu=all",
+    "--security-opt", "label=disable",
+    "--userns=keep-id",
+    "--shm-size=16g"
+  ],
+
+  "remoteUser": "vscode",
+
+  "containerEnv": {
+    "UV_LINK_MODE": "copy",
+    "SSH_AUTH_SOCK": "/ssh-agent"
+  },
+
+  "mounts": [
+    // Shared lab data drive — WSTS TIFFs, WRF NetCDFs, scratch outputs
+    "source=/run/data_raid5,target=/run/data_raid5,type=bind,consistency=cached,readonly=false",
+    // Persist Claude Code chat logs, memory, and settings across container rebuilds
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    // Forward host SSH agent so git push to github.com works inside the container
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind"
+  ],
+  "postCreateCommand": "bash .devcontainer/postCreate.sh",
+  "postStartCommand":  "uv sync --quiet",
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.dataScience.sendSelectionToInteractiveWindow": true,
+        "jupyter.interactiveWindow.mode": "perFile",
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.profiles.linux": {
+          "bash": { "path": "/bin/bash" }
+        },
+        "python.locator": "js"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "charliermarsh.ruff",
+        "mechatroner.rainbow-csv",
+        "anthropic.claude-code"
+      ]
+    }
+  }
+}
