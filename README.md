@@ -11,6 +11,22 @@
 
 This repository extends the original **WildfireSpreadTS** benchmark with new models, improved training, and an expanded benchmark dataset, **WSTS+**.
 
+> **Working in this fork?** This repo extends WSTS+ with WRF (Weather Research and Forecasting) numerical-weather features. Start here:
+>
+> - [STATUS.md](STATUS.md) — current state, recent dry-run results, known issues
+> - [RUN_TRAINING_NOTES.md](RUN_TRAINING_NOTES.md) — how to build datasets and train (devcontainer + uv)
+> - [CLAUDE.md](CLAUDE.md) — working principles and project conventions
+> - [docs/BACKLOG.md](docs/BACKLOG.md) — known cleanups and tangents
+>
+> ## Getting started
+>
+> 1. **Open in the devcontainer.** VS Code → "Reopen in Container". `postCreate.sh` runs `uv sync` and sets up the data-path symlink. First build takes a few minutes.
+> 2. **Confirm GPU.** `uv run python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"` should print `True 2` (or whatever GPUs the host has).
+> 3. **Smoke-test training.** `WANDB_MODE=disabled scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 5 --wrf-only` — about a minute on a single 4090.
+> 4. **For a real run, drop `--epochs 5 --wrf-only`** and use the script defaults (50 epochs, both WRF + matched WSTS), or scale up via `--epochs N`.
+>
+> Datasets already exist under `/run/data_raid5/scratch/wrf_wsts*` — no rebuild needed for training. To rebuild from scratch see [RUN_TRAINING_NOTES.md § 4](RUN_TRAINING_NOTES.md).
+
 ---
 ## Benchmark Results (AP ± Standard Deviation)
 

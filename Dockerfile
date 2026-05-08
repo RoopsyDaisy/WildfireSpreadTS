@@ -5,7 +5,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 # -----------------------------------------------------------------------------
 # Base system packages
 # -----------------------------------------------------------------------------
-# Python 3.10 is the default on ubuntu 22.04 — matches WSTS+'s tested setup.
+# System Python 3.10 (Ubuntu 22.04 default) is installed for general use,
+# but uv resolves a project-managed 3.12 (per pyproject.toml requires-python)
+# into .venv/. The system 3.10 isn't on the venv's PATH at runtime.
 # GDAL/PROJ/NetCDF for geospatial + WRF NetCDF reading.
 # Node for the Claude Code CLI; ffmpeg/rsync are commonly useful.
 RUN apt-get update && \

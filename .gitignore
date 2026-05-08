@@ -28,6 +28,9 @@ wandb/
 # Stray runtime artifacts that have been committed historically
 .nvimlog
 .codex
+# Written by BaseModel.test_epoch_end with a hardcoded relative path
+# (see docs/BACKLOG.md for the fix to write to trainer.default_root_dir).
+test_pr_curve_data.npz
 
 # Claude Code user-local overrides (project defaults live in .claude/settings.json)
 .claude/settings.local.json

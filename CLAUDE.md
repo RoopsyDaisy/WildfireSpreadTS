@@ -14,7 +14,7 @@ Upstream lineage: SebastianGer → slahrichi (WSTS+ paper) → forked here, plus
 - Zarr conversion at `src/preprocess/CreateZarrDataset.py`
 - WRF training config at `cfgs/data_monotemporal_wrf_full_features.yaml`
 - Pipeline scripts under `scripts/` (`build_all_datasets.sh`, `train_wrf_vs_wsts.sh`)
-- See `RUN_TRAINING_NOTES.md` and `AGENT.md` for lorn's prior context
+- See `STATUS.md` for current state, `docs/BACKLOG.md` for known cleanups, and `RUN_TRAINING_NOTES.md` for the canonical run commands
 
 ### Mode Selection
 Single mode for now — coding/research. Slash commands (`/code`, `/wrap`) provide narrow context loading. New modes can be added under `.claude/commands/` as the project grows.
@@ -119,15 +119,15 @@ For work spanning many files, new subsystems, or multiple logical phases (refact
 
 ### Tech Stack
 - **Package management**: `uv` with `uv.lock` and `pyproject.toml`
-- **Python**: 3.10 (matches WSTS+ tested environment)
+- **Python**: 3.12 (bumped from WSTS+'s 3.10; zarr v3 dropped 3.10. uv manages the interpreter — no Dockerfile change required.)
 - **PyTorch**: 2.5+ on CUDA 12.4 (modernised from WSTS+'s pinned 2.0). Wheels pulled from `https://download.pytorch.org/whl/cu124` via `[tool.uv.sources]`.
 - **Training framework**: PyTorch Lightning 2.4+, Weights & Biases for tracking
 - **Geospatial**: rasterio, xarray, geopandas, pyproj, netcdf4
 - **WRF I/O**: netcdf4 directly; `wrf-python` is an optional extra (`uv sync --extra wrf`) — `BuildWRFWSTS.py` guards the import
-- **Storage**: Zarr is preferred over HDF5 for new datasets (lorn's call, see `RUN_TRAINING_NOTES.md`)
+- **Storage**: Zarr v3 (preferred over HDF5; existing scratch stores are v3 format, written by lorn's pipeline)
 
 ### Code Style
-- **Formatting**: ruff (line-length 99, py310 target, config in pyproject.toml)
+- **Formatting**: ruff (line-length 99, py312 target, config in pyproject.toml)
 - **Type hints**: Preferred (add to new code, don't retrofit blindly)
 - **Docstrings**: Google style
 - **Run linter**: `uv run ruff check .` and `uv run ruff format .`

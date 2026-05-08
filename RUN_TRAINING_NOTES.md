@@ -1,176 +1,99 @@
-# Running This Repo
+# Running this repo
 
-This repo has two separate workflows:
+This repo has two workflows: **build** the WRF-augmented dataset, and **train**
+the model on the resulting Zarr stores. Both run inside the devcontainer's
+uv-managed venv.
 
-1. Build the WRF-augmented dataset and the matched WSTS dataset.
-2. Train the model on the resulting Zarr datasets.
+For status and known issues see [STATUS.md](STATUS.md). For cleanup items see
+[docs/BACKLOG.md](docs/BACKLOG.md).
 
-## 1. Preferred host-side Podman workflow
+---
 
-If you want to avoid setting up conda directly on the machine, use the Podman container path from the real host, outside distrobox.
-
-Build the image:
-
-```bash
-cd /home/lornjaeger/distrobox/homes/train/scratch/WildfireSpreadTS_with_wrf
-./scripts/podman_build.sh
-```
-
-Open a shell in the GPU-enabled container:
+## 1. Quick start
 
 ```bash
-./scripts/podman_shell.sh
+# Sync the env (auto on container create/start; only re-run after pyproject changes)
+uv sync
+
+# Confirm GPU
+uv run python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
+
+# Smoke-test training (5 epochs, ~1 min on a single 4090)
+WANDB_MODE=disabled scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 5 --wrf-only
+
+# Real run (100 epochs, ~7 min on a single 4090)
+WANDB_MODE=disabled scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 100
 ```
 
-Inside that container, create or update the repo envs once:
+`WANDB_MODE=disabled` skips wandb auth — useful in dev. Drop it (and run
+`uv run wandb login` first) for tracked runs. See [docs/BACKLOG.md](docs/BACKLOG.md)
+for the open item on persisting wandb auth across container rebuilds.
+
+---
+
+## 2. Data locations
+
+The devcontainer bind-mounts `/run/data_raid5` from the host. Canonical paths:
+
+| Path | Contents |
+|---|---|
+| `/run/data_raid5/shared_data/WSTS` | source WSTS TIFFs (read-only by convention) |
+| `/run/data_raid5/lornjaeger/trimmed` | source WRF NetCDFs |
+| `/run/data_raid5/scratch/wrf_wsts/` | WSTS TIFFs enriched with WRF variables |
+| `/run/data_raid5/scratch/wrf_wsts_zarr/` | Zarr v3 of `wrf_wsts/` — main training input |
+| `/run/data_raid5/scratch/wrf_wsts_match/` | WSTS subset matching WRF days |
+| `/run/data_raid5/scratch/wrf_wsts_zarr_match/` | Zarr v3 of `wrf_wsts_match/` — control run input |
+
+The scripts hardcode `/run/host/run/data_raid5/...` for compatibility with
+lorn's podman-host workflow; `postCreate.sh` symlinks that to the real path.
+De-hardcoding is a [backlog item](docs/BACKLOG.md).
+
+The `scratch/` paths are slated to migrate to `/run/data_raid5/shared_data/wrf_wsts/`
+to escape lorn's per-user scratch convention — also tracked in the backlog.
+
+---
+
+## 3. Training
+
+`scripts/train_wrf_vs_wsts.sh` runs both the WRF-augmented and the matched-WSTS
+configs back-to-back with identical settings. Defaults:
+
+| Flag | Default |
+|---|---|
+| `--fold` | 0 |
+| `--epochs` | 50 |
+| `--batch` | 32 |
+| `--workers` | 16 |
+| `--out-dir` | `/tmp/lightning_logs` |
+
+Useful flags:
 
 ```bash
-./scripts/podman_setup_envs.sh
+# Just the WRF run (skip the matched-WSTS comparison)
+scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 100 --wrf-only
+
+# Override data paths via env vars (handy after the dataset migration)
+WRF_ZARR_DIR=/somewhere/else scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 100
 ```
 
-Then use the normal repo commands:
+Underlying configs:
+
+- Model: [cfgs/unet/res18_monotemporal.yaml](cfgs/unet/res18_monotemporal.yaml) — ResNet18 U-Net, focal loss
+- Trainer: [cfgs/trainer_single_gpu.yaml](cfgs/trainer_single_gpu.yaml) — 1 GPU, FP32, wandb logger
+- WRF data: [cfgs/data_monotemporal_wrf_full_features.yaml](cfgs/data_monotemporal_wrf_full_features.yaml) — 1-day input, 23 features, spatial split
+- Matched WSTS data: [cfgs/data_monotemporal_full_features.yaml](cfgs/data_monotemporal_full_features.yaml)
+
+### Manual single run
+
+If you don't want the paired comparison and prefer to drive `train.py` directly:
 
 ```bash
-./scripts/build_all_datasets.sh --workers 8
-WANDB_MODE=disabled ./scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 50 --batch 32 --workers 16
-```
-
-Notes:
-
-- `scripts/podman_shell.sh` mounts the repo at `/workspace`.
-- It mounts host `/run/data_raid5` to `/run/host/run/data_raid5`, matching the repo's hard-coded data paths.
-- It uses persistent Podman volumes for `/opt/conda/envs` and `/opt/conda/pkgs`, so envs survive across sessions.
-- This is intended to be launched from the real host, not from inside the distrobox.
-
-## 2. Direct conda env setup
-
-The helper scripts expect conda env names `build` and `train`.
-The checked-in YAML files are named `wsts_join` and `wsts_wrf_gpu`, so the easiest path is to create the envs with overridden names:
-
-```bash
-cd /home/lornjaeger/distrobox/homes/train/scratch/WildfireSpreadTS_with_wrf
-
-conda env create -f environment-joining.yml -n build
-conda env create -f environment.yml -n train
-```
-
-If those envs already exist:
-
-```bash
-conda env update -f environment-joining.yml -n build --prune
-conda env update -f environment.yml -n train --prune
-```
-
-Notes:
-
-- `build` is for preprocessing / dataset joining.
-- `train` is for GPU training.
-- `scripts/run_in_project_env.sh` enters distrobox `train` by default, then runs `conda run -n ...`.
-- If WRF NetCDF reading fails in preprocessing, install `wrf-python` into `build`.
-
-## 3. Expected data locations
-
-The current helper scripts are hard-coded to these paths:
-
-```text
-SOURCE_WSTS=/run/host/run/data_raid5/shared_data/WSTS
-WRF_NETCDF=/run/host/run/data_raid5/lornjaeger/trimmed
-WRF_OUT_DIR=/run/host/run/data_raid5/scratch/wrf_wsts
-WRF_ZARR_DIR=/run/host/run/data_raid5/scratch/wrf_wsts_zarr
-MATCH_DIR=/run/host/run/data_raid5/scratch/wrf_wsts_match
-MATCH_ZARR_DIR=/run/host/run/data_raid5/scratch/wrf_wsts_zarr_match
-```
-
-What gets built:
-
-- `wrf_wsts`: WSTS TIFFs enriched with WRF variables.
-- `wrf_wsts_zarr`: Zarr version of `wrf_wsts`.
-- `wrf_wsts_match`: original WSTS restricted to the same fire-days present in `wrf_wsts`.
-- `wrf_wsts_zarr_match`: Zarr version of `wrf_wsts_match`.
-
-## 4. Build all datasets
-
-From the repo root:
-
-```bash
-./scripts/build_all_datasets.sh
-```
-
-Useful variants:
-
-```bash
-./scripts/build_all_datasets.sh --workers 8
-./scripts/build_all_datasets.sh --workers 8 --overwrite
-```
-
-What this script does:
-
-1. Runs `src/preprocess/BuildWRFWSTS.py`
-2. Runs `src/preprocess/BuildMatchedWSTS.py --make_zarr`
-3. Runs `src/preprocess/CreateZarrDataset.py` for the WRF-enriched dataset
-
-Important behavior in the WRF join step:
-
-- It looks for WRF files under each fire directory, usually under a `wrf/` subdir.
-- It averages multiple WRF files from the same day.
-- It uses both the current day and the next day.
-- If either the current day or next day WRF data is missing, that TIFF is skipped.
-
-## 5. Rebuild only the matched WSTS side
-
-If `wrf_wsts` already exists and you only need the matched original WSTS plus Zarr outputs:
-
-```bash
-./scripts/build_hdf5_match_only.sh
-```
-
-Despite the old script name, it now builds matched WSTS plus Zarr outputs, not just HDF5.
-
-## 6. Train the comparison run: WRF first, then matched WSTS
-
-The main remembered command is:
-
-```bash
-./scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 50 --batch 32 --workers 16
-```
-
-That script trains two runs back-to-back with identical settings:
-
-1. WRF-enriched dataset from `/run/host/run/data_raid5/scratch/wrf_wsts_zarr`
-2. Matched WSTS dataset from `/run/host/run/data_raid5/scratch/wrf_wsts_zarr_match`
-
-Defaults in the script:
-
-```text
-fold=0
-epochs=50
-batch=32
-workers=16
-```
-
-Model/config used by that script:
-
-- Model config: `cfgs/unet/res18_monotemporal.yaml`
-- Trainer config: `cfgs/trainer_single_gpu.yaml`
-- WRF data config: `cfgs/data_monotemporal_wrf_full_features.yaml`
-- Matched WSTS data config: `cfgs/data_monotemporal_full_features.yaml`
-
-This is a 1-day input ResNet18 U-Net run with spatial splitting.
-
-## 7. Run a single training job manually
-
-If you only want one training run instead of the paired comparison script:
-
-WRF dataset:
-
-```bash
-PYTHONPATH="$PWD:$PWD/src" WANDB_MODE=disabled conda run -n train \
-  python src/train.py \
+WANDB_MODE=disabled PYTHONPATH="$PWD:$PWD/src" uv run python src/train.py \
   --config=cfgs/unet/res18_monotemporal.yaml \
   --trainer=cfgs/trainer_single_gpu.yaml \
   --data=cfgs/data_monotemporal_wrf_full_features.yaml \
-  --data.data_dir /run/host/run/data_raid5/scratch/wrf_wsts_zarr \
-  --trainer.max_epochs 50 \
+  --data.data_dir /run/data_raid5/scratch/wrf_wsts_zarr \
+  --trainer.max_epochs 100 \
   --data.batch_size 32 \
   --data.num_workers 16 \
   --trainer.default_root_dir /tmp/lightning_logs \
@@ -179,54 +102,49 @@ PYTHONPATH="$PWD:$PWD/src" WANDB_MODE=disabled conda run -n train \
   --do_train True
 ```
 
-Matched original WSTS:
+---
+
+## 4. Building datasets
+
+⚠ The build scripts (`build_all_datasets.sh`, `build_hdf5_match_only.sh`) were
+ported from lorn's distrobox+conda flow to the devcontainer's uv venv but
+**have not been re-validated end-to-end**. The scratch outputs already exist,
+so this hasn't blocked anyone. Expect to debug the `wrf-python` build path
+and possibly WRF NetCDF reads on first run.
 
 ```bash
-PYTHONPATH="$PWD:$PWD/src" WANDB_MODE=disabled conda run -n train \
-  python src/train.py \
-  --config=cfgs/unet/res18_monotemporal.yaml \
-  --trainer=cfgs/trainer_single_gpu.yaml \
-  --data=cfgs/data_monotemporal_full_features.yaml \
-  --data.data_dir /run/host/run/data_raid5/scratch/wrf_wsts_zarr_match \
-  --trainer.max_epochs 50 \
-  --data.batch_size 32 \
-  --data.num_workers 16 \
-  --trainer.default_root_dir /tmp/lightning_logs \
-  --data.split_strategy spatial \
-  --data.data_fold_id 0 \
-  --do_train True
+# wrf-python is gated behind the [wrf] extra
+uv sync --extra wrf
+
+# Build everything end-to-end (1: WRF TIFFs, 2: matched WSTS + Zarr, 3: WRF Zarr)
+scripts/build_all_datasets.sh --workers 8
+
+# Just the matched-WSTS side (if wrf_wsts/ already exists)
+scripts/build_hdf5_match_only.sh
 ```
 
-## 8. W&B
+What the WRF-join step does:
 
-The trainer config uses a WandB logger by default.
+- Looks for WRF files under each fire dir's `wrf/` subdir
+- Averages multiple WRF files from the same day
+- Uses both current-day and next-day WRF data
+- Skips a TIFF if either current or next-day WRF is missing
 
-If you do not want WandB syncing, run with:
+---
+
+## 5. Long-running jobs that survive disconnects
+
+For runs you don't want tied to your shell session:
 
 ```bash
-WANDB_MODE=disabled
+LOG=/tmp/dryrun_$(date +%Y%m%d_%H%M%S).log
+setsid nohup env WANDB_MODE=disabled \
+  scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 500 \
+  > "$LOG" 2>&1 < /dev/null &
+echo "PID $! → $LOG"
+disown
 ```
 
-Example:
-
-```bash
-WANDB_MODE=disabled ./scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 50 --batch 32 --workers 16
-```
-
-## 9. What to remember next time
-
-If you only need the shortest version:
-
-```bash
-cd /home/lornjaeger/distrobox/homes/train/scratch/WildfireSpreadTS_with_wrf
-
-./scripts/podman_build.sh
-./scripts/podman_shell.sh
-
-# inside the container
-./scripts/podman_setup_envs.sh
-
-./scripts/build_all_datasets.sh --workers 8
-
-WANDB_MODE=disabled ./scripts/train_wrf_vs_wsts.sh --fold 0 --epochs 50 --batch 32 --workers 16
-```
+`setsid` puts the process in a new session detached from your terminal, so it
+survives anything short of the host rebooting. Check progress with `tail -f`,
+stop with `kill <pid>`.

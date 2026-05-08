@@ -87,8 +87,21 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP"]
-ignore = ["E501"]  # line-length handled by formatter
+# Narrow rule set while inherited WSTS+ code still has ~300 stylistic
+# warnings (mostly UP006/UP045 typing modernisations, W293 trailing
+# whitespace, F401 unused imports). Re-broaden once those are mass-fixed
+# — see docs/BACKLOG.md.
+select = ["E", "F"]
+ignore = [
+    "E501",  # line-length handled by formatter
+    "E402",  # WSTS+ has top-of-file PYTHONPATH manipulation
+    "E721",  # type-comparison; pre-existing
+    "E731",  # lambda-assignment; pre-existing
+    "E741",  # ambiguous-variable-name; pre-existing
+    "F401",  # unused imports widespread in WSTS+ — re-enable post-cleanup
+    "F811",  # redefined-while-unused; pre-existing
+    "F841",  # unused variables; pre-existing
+]
 
 [tool.ruff.format]
 quote-style = "double"
