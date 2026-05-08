@@ -70,12 +70,15 @@ class MyLightningCLI(LightningCLI):
     def wandb_setup(self):
         """
         Save the config used by LightningCLI to disk, then save that file to wandb.
-        Using wandb.config adds some strange formating that means we'd have to do some 
+        Using wandb.config adds some strange formating that means we'd have to do some
         processing to be able to use it again as CLI input.
 
-        Also define min and max metrics in wandb, because otherwise it just reports the 
+        Also define min and max metrics in wandb, because otherwise it just reports the
         last known values, which is not what we want.
         """
+        if wandb.run is None:
+            # WANDB_MODE=disabled (or wandb not started yet) — nothing to save.
+            return
         config_file_name = os.path.join(wandb.run.dir, "cli_config.yaml")
 
         cfg_string = self.parser.dump(self.config, skip_none=False)

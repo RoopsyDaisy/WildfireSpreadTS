@@ -10,5 +10,8 @@ try:
     from .TransUnetLightning import TransUnetLightning
 except ModuleNotFoundError:
     TransUnetLightning = None
-from .SMPTempModel import SMPTempModel 
-from .SegFormerLightning import SegFormerLightning
+from .SMPTempModel import SMPTempModel
+try:
+    from .SegFormerLightning import SegFormerLightning
+except ModuleNotFoundError:
+    SegFormerLightning = None

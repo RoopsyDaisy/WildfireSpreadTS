@@ -331,7 +331,7 @@ class FireSpreadDataset(Dataset):
                         if zarr is None:
                             raise ImportError("zarr is required when load_from_zarr=True.")
                         root = zarr.open_group(str(fire_imgs[0]), mode='r')
-                        n_fire_imgs = len(root["data"]) - self.skip_initial_samples
+                        n_fire_imgs = root["data"].shape[0] - self.skip_initial_samples
                 # If we have two days of observations, and a lead of one day,
                 # we can only predict the second day's fire mask, based on the first day's observation
                 datapoints_in_fire = n_fire_imgs - self.n_leading_observations
