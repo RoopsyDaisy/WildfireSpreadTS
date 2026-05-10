@@ -55,21 +55,47 @@ checkpoint storage).
   postCreate hook prints a clear warning. `git push` is blocked until the host-side
   agent forwarding is sorted; local commits are unaffected.
 
-## Ask lorn (2026-05-08 is his last day)
+## Audit findings from lorn handover (2026-05-08)
 
-In rough priority order:
+Sent lorn a batch of clarifying questions on his last day; answers below, plus
+what we found by digging.
 
-1. **`test_loss = 1.8e+30` on the 100-epoch dry run.** Has this happened on his runs?
-   Where in the loss-reduction code does he expect numerical blow-up to be caught?
-   Suspicion: focal loss on a single batch with degenerate inputs (NaN/inf in WRF
-   features, or all-zero labels). Worth checking `BaseModel.test_step` and the
-   focal-loss path in `SMPModel`.
-2. **Why are `cfgs/data_monotemporal_full_features.yaml` and the WRF-flavoured one
-   wired differently** for `data_dir` vs everything else? The training-time CLI
-   override pattern works, but it'd help to have his rationale documented.
-3. **Are the `_match` datasets the right thing to compare against?** Lorn's notes
-   imply yes, but worth a sanity check that "WSTS restricted to the same days where
-   WRF was available" is the right control group, not "all of WSTS".
+1. **`test_loss = 1.8e+30`** — lorn: "no idea." We dug:
+   - Raw zarr inputs are clean (no NaN/inf, sensible ranges across all 23 channels)
+   - Active fire labels are nan-cleaned in `FireSpreadDataset.preprocess_and_augment`
+   - Found a related real bug — see "Standardization stats are stale" below
+   - Root cause for the 1e+30 magnitude is still unidentified. Needs per-batch
+     loss instrumentation in `BaseModel.test_step` to find the offending batch.
+2. **5 fires with `RuntimeWarning: ... too few images`** — lorn: "known, not
+   fixed, just manual deletion". Verified: each of those fires has 1 WRF-enriched
+   TIFF (vs 12-21 in source WSTS) because most days had no current+next WRF data.
+   They contribute zero training samples. **Manual deletion deferred** — host-side
+   `sudo rm` required because they're owned by `nobody:nogroup` from the
+   container's userns-mapped perspective. See backlog item.
+3. **23-channel mapping** — lorn: "in the code, double-check it." Verified
+   against `FireSpreadDataset.map_channel_index_to_features` (line 640).
+   `BuildWRFWSTS.py` overwrites channels 5,6,7,8,9,11,17,18,19,20,21 — these
+   exactly correspond to the GRIDMET weather (5-11 except ch 10 = ERC, kept) and
+   GFS forecast (17-21) features. The day-vs-next-day asymmetry for temperature
+   (ch 8/9 = `t2_min/t2_max` vs ch 20 = plain `t2`) **mirrors the original WSTS
+   layout's asymmetry**, not a bug. Strategy is coherent: "replace satellite-derived
+   weather with WRF-derived weather".
+4. **`_match` baseline correctness** — lorn: confirmed. "wrf fires to wrf fires
+   with and without wrf data" = same fires, days where WRF was available. Apples
+   to apples.
+5. **Hardcoded `np.savez("test_pr_curve_data.npz", ...)`** — lorn: leftover from
+   debugging. Already gitignored; backlogged the path fix.
+6. **wandb** — lorn: "had it set up but mostly off, generally just saved model
+   to disk". Aligns with our `WANDB_MODE=disabled` default.
+
+### Real bugs surfaced by the audits (separate from above)
+
+- **Standardization stats are stale for WRF channels.** `get_means_stds_missing_values()`
+  in `dataloader/utils.py` returns hardcoded means/stds computed on the original
+  WSTS GRIDMET + GFS values. Channels 5,6,8,9,11,17,18,20,21 now contain WRF
+  data with different distributions, but the standardizer doesn't know. Magnitude
+  impact looks bounded (no obvious blow-up), but it's a real correctness issue and
+  may compound the test_loss anomaly. See backlog.
 
 ## Open questions for Rupert / colleague
 
@@ -81,11 +107,14 @@ In rough priority order:
 
 ## Recent changes
 
+- 2026-05-08 — Audited the three open lorn-questions; channel mapping verified,
+  stale-stats bug surfaced, dead-end fires identified for deletion (deferred to
+  host shell). Commit pending.
 - 2026-05-08 — Bumped Python 3.10→3.12, zarr <3.0→>=3.0.8 (data on disk is v3 format),
   fixed three pipeline bugs (wandb_setup guard, `len(zarr_array)` v3 incompat,
   optional SegFormer import). Commit `8db2e69`.
 - 2026-05-08 — Ported `train_wrf_vs_wsts.sh` to the devcontainer's uv flow; deleted
   `run_in_project_env.sh` and the `podman_*.sh` scripts that targeted lorn's
-  host-side distrobox setup. Build scripts ported but unverified.
+  host-side distrobox setup. Build scripts ported but unverified. Commit `07bc189`.
 - 2026-05-07 — Devcontainer postCreate failure (wrf-python build dep) fixed by
   declaring numpy as an extra-build-dep for wrf-python. Commit `11731ae`.
