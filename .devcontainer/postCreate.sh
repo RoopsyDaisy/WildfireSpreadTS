@@ -45,6 +45,28 @@ if [[ "$PASS" == false ]]; then
     echo ""
 fi
 
+# ── Force shells to use the bind-mounted SSH agent socket ────────────────────
+# VS Code Dev Containers auto-injects its own SSH agent proxy socket via
+# docker exec env at terminal start, overriding our devcontainer.json
+# `containerEnv.SSH_AUTH_SOCK = /ssh-agent`. On this host that proxy is
+# broken ("communication with agent failed"); the bind-mounted /ssh-agent
+# (the host's actual agent) works. Force every shell to point at it.
+echo ""
+echo "→ Pinning SSH_AUTH_SOCK to the bind-mounted /ssh-agent socket..."
+sudo tee /etc/profile.d/01-ssh-agent.sh > /dev/null <<'EOF'
+# Override VS Code's auto-forward; /ssh-agent is the bind-mount from
+# devcontainer.json that points at the host's working agent.
+if [ -S /ssh-agent ]; then
+    export SSH_AUTH_SOCK=/ssh-agent
+fi
+EOF
+sudo chmod 0644 /etc/profile.d/01-ssh-agent.sh
+# /etc/profile.d only covers login shells; cover interactive non-login too.
+if ! grep -q "01-ssh-agent.sh" /etc/bash.bashrc 2>/dev/null; then
+    echo '. /etc/profile.d/01-ssh-agent.sh' | sudo tee -a /etc/bash.bashrc > /dev/null
+fi
+echo "  ✓ override installed (will apply to new shells)"
+
 # ── Compatibility shim for hardcoded podman-style data paths ─────────────────
 # Lorn's preprocessing scripts hardcode `/run/host/run/data_raid5/...` (podman
 # mounts the host's /run under /run/host). In a devcontainer, /run/data_raid5
