@@ -78,14 +78,6 @@ Pursue, Tangential Optimisations".
 - **Cost:** 30 seconds once on the host shell.
 - **Status:** open — Rupert deferred 2026-05-08.
 
-### SSH agent forwarding inside the devcontainer
-- **Trigger:** socket forwards correctly but the local agent has no keys
-  loaded; `git push` to GitHub is blocked. The postCreate hook prints clear
-  guidance.
-- **Plan:** verify the laptop side following the postCreate hint; if that
-  doesn't work, compare with another working devcontainer setup.
-- **Cost:** fiddly, mostly host-config.
-
 ### Fix hardcoded `test_pr_curve_data.npz` path in BaseModel
 - **Trigger:** `src/models/BaseModel.py:318` calls
   `np.savez("test_pr_curve_data.npz", ...)` with a relative path, so every
@@ -128,6 +120,11 @@ Pursue, Tangential Optimisations".
 
 ## Done
 
+- **2026-05-13** — Resolved SSH agent forwarding for the devcontainer.
+  VS Code's auto-injected proxy socket is broken on this host, but the
+  bind-mounted `/ssh-agent` works. `postCreate.sh` now installs a
+  `/etc/profile.d/01-ssh-agent.sh` override that pins `SSH_AUTH_SOCK=/ssh-agent`
+  for new shells (login + interactive non-login). Commit `4d6683f`.
 - **2026-05-10** — Resolved `test_loss = 1.8e+30` anomaly. Two parts: (a)
   recomputed standardization stats over the actual WRF data (new
   `src/dataloader/wrf_stats.py` + `scripts/compute_wrf_stats.py`); (b)

@@ -3,7 +3,7 @@
 Living doc — overwrites encouraged, history in git. Pair with [docs/BACKLOG.md](docs/BACKLOG.md)
 for non-urgent ideas / cleanup work and [CLAUDE.md](CLAUDE.md) for working principles.
 
-**Last updated:** 2026-05-10
+**Last updated:** 2026-05-13
 
 ---
 
@@ -52,9 +52,12 @@ Best checkpoint (persists across container restarts):
 - **`~/.netrc` for wandb does not survive a container rebuild.** The `~/.claude/`
   mount persists chat/memory but `~/.netrc` lives outside it. For now, run training
   with `WANDB_MODE=disabled`, or re-`uv run wandb login` after a rebuild.
-- **SSH agent forwarding works (socket present) but no keys are loaded.** The
-  postCreate hook prints a clear warning. `git push` is blocked until the host-side
-  agent forwarding is sorted; local commits are unaffected.
+- **SSH agent forwarding fixed 2026-05-13.** VS Code's auto-injected proxy
+  socket is broken on this host; postCreate now pins `SSH_AUTH_SOCK=/ssh-agent`
+  for interactive shells via `/etc/profile.d/01-ssh-agent.sh`. Non-interactive
+  `sh -c` invocations (e.g. Claude Code's Bash tool) still inherit VS Code's
+  bad socket — prefix `SSH_AUTH_SOCK=/ssh-agent` if you need github access
+  from such a context. Commit `4d6683f`.
 
 ## Audit findings from lorn handover (2026-05-08)
 
@@ -117,6 +120,8 @@ what we found by digging.
 
 ## Recent changes
 
+- 2026-05-13 — Resolved SSH agent forwarding (host vs. VS Code proxy mismatch).
+  postCreate now installs a `/etc/profile.d/` override. Commit `4d6683f`.
 - 2026-05-10 — Resolved `test_loss = 1.8e+30` anomaly. Added WRF-specific
   standardization stats (`src/dataloader/wrf_stats.py` + recompute script),
   a load-time clip for NetCDF sentinel-fill values, and a `wrf_data: bool`
