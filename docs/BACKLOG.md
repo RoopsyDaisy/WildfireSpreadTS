@@ -31,21 +31,20 @@ Pursue, Tangential Optimisations".
   the shim from `postCreate.sh`.
 - **Status:** open
 
-### Investigate `test_loss = 1.8e+30` + fix stale standardization stats
-- **Trigger:** 2026-05-08 100-epoch dry run produced a wildly inflated
-  `test_loss` (1.8e+30) while classification metrics were normal. Audit
-  showed raw zarr inputs are clean — but `get_means_stds_missing_values()`
-  returns hardcoded means/stds computed on the *original* WSTS GRIDMET +
-  GFS values, while channels 5,6,8,9,11,17,18,20,21 now contain WRF data
-  with different distributions. These two issues are likely related.
-- **Plan:** (a) recompute means/stds over the actual `wrf_wsts_zarr/`
-  data, add a new stats year-combo to `dataloader/utils.py`. (b) instrument
-  `BaseModel.test_step` to log per-batch loss; rerun fold 0; find the
-  outlier batch; dump its inputs/labels/logits. Likely the corrected stats
-  alone resolve or substantially reduce the loss anomaly.
-- **Cost:** ~half day to a day combined.
-- **Status:** open. Lorn ("no idea") confirmed 2026-05-08. Tracked together
-  because the stale stats are the leading hypothesis for the loss blow-up.
+### Fix sentinel-fill leak in BuildWRFWSTS upstream
+- **Trigger:** two fires (`2018/fire_22258421`, `2021/fire_25294687`) have
+  NetCDF `_FillValue` (~1e+36) in channels 5 / 17 of the WRF Zarr because
+  `BuildWRFWSTS.average_wrf_files` sums files without filtering the fill
+  value. Currently mitigated by a load-time clip in the dataloader (see
+  `FireSpreadDataset.preprocess_and_augment`, gated on `wrf_data: bool`).
+- **Plan:** add a fill-value mask in `BuildWRFWSTS._normalize_wrf_array` or
+  in `average_wrf_files`; re-run preprocessing for the affected fires (or
+  the whole dataset). Once preprocessing is clean, drop the load-time clip
+  band-aid.
+- **Cost:** ~30 min for the code change, plus a full preprocessing rerun
+  (~hours) if we re-do everything. Or surgical re-run of just the 2 fires.
+- **Status:** open. Mitigation in place; upstream fix waiting for the next
+  BuildWRFWSTS validation pass.
 
 ### Validate `build_all_datasets.sh` end-to-end in the devcontainer
 - **Trigger:** ported from distrobox+conda to uv 2026-05-08 but not re-run.
@@ -60,12 +59,6 @@ Pursue, Tangential Optimisations".
 - **Options:** add `~/.netrc` to the mounts in `devcontainer.json`, or read
   `WANDB_API_KEY` from a host env var.
 - **Cost:** five minutes once the right pattern is picked.
-
-### Persistent checkpoint storage
-- **Trigger:** `cfgs/trainer_single_gpu.yaml` and `train_wrf_vs_wsts.sh`
-  default to `/tmp/lightning_logs`, which dies on container restart.
-- **Plan:** default to `/run/data_raid5/<user>/lightning_logs/` or similar.
-- **Cost:** small; a path change in one config + one script.
 
 ### Delete the 5 dead-end fires from scratch (host-side rm required)
 - **Trigger:** 5 fires (`fire_22141572`, `fire_23301395`, `fire_24104628`,
@@ -135,6 +128,16 @@ Pursue, Tangential Optimisations".
 
 ## Done
 
+- **2026-05-10** — Resolved `test_loss = 1.8e+30` anomaly. Two parts: (a)
+  recomputed standardization stats over the actual WRF data (new
+  `src/dataloader/wrf_stats.py` + `scripts/compute_wrf_stats.py`); (b)
+  added a load-time clip for NetCDF sentinel-fill values that leak into
+  ch 5 / 17 for two fires. Gated behind `wrf_data: bool` on the data
+  config so the matched-WSTS run is unaffected. test_loss now 0.00364,
+  test_AP unchanged (0.527 vs 0.522). Commit `498e9d9`.
+- **2026-05-10** — Persistent checkpoint storage. `train_wrf_vs_wsts.sh`
+  default OUT_DIR now `/run/data_raid5/scratch/lightning_logs`
+  (env-var overridable), survives container restarts. Commit `498e9d9`.
 - **2026-05-08** — Audited lorn's three open questions: channel mapping
   verified (coherent GRIDMET/GFS → WRF replacement strategy), 5 dead-end
   fires identified for cleanup (deferred to host shell), test_loss anomaly
