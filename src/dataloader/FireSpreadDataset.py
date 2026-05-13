@@ -8,6 +8,13 @@ import numpy as np
 import glob
 import warnings
 from .utils import get_means_stds_missing_values, get_indices_of_degree_features
+from .wrf_stats import get_means_stds_missing_values_wrf
+
+# WRF NetCDFs use ~9.97e+36 as the default fill value for missing pixels.
+# BuildWRFWSTS averages files without filtering, so a couple of fires leak
+# values around 1e+36 into channels 5 (day rain) and 17 (next-day rain).
+# Treat anything above this magnitude as missing.
+WRF_SENTINEL_THRESHOLD = 1e10
 import torchvision.transforms.functional as TF
 import h5py
 from datetime import datetime
@@ -24,7 +31,7 @@ class FireSpreadDataset(Dataset):
                  stats_years: Optional[List[int]], n_leading_observations_test_adjustment: Optional[int] = None,
                  features_to_keep: Optional[List[int]] = None, return_doy: bool = False, is_pad: Optional[bool] = False,
                  included_fire_ids: Optional[List[tuple]] = None, skip_stats: bool = False,
-                 load_from_zarr: bool = False):
+                 load_from_zarr: bool = False, wrf_data: bool = False):
         """_summary_
 
         Args:
@@ -64,6 +71,7 @@ class FireSpreadDataset(Dataset):
         self.data_dir = data_dir
         self.is_pad = is_pad
         self.skip_stats = skip_stats
+        self.wrf_data = wrf_data
 
         self.validate_inputs()
 
@@ -86,7 +94,8 @@ class FireSpreadDataset(Dataset):
         # The one-hot matrix is used for one-hot encoding of land cover classes
         self.one_hot_matrix = torch.eye(17)
         if not self.skip_stats:
-            self.means, self.stds, _ = get_means_stds_missing_values(self.stats_years)
+            stats_fn = get_means_stds_missing_values_wrf if self.wrf_data else get_means_stds_missing_values
+            self.means, self.stds, _ = stats_fn(self.stats_years)
             self.means = self.means[None, :, None, None]
             self.stds = self.stds[None, :, None, None]
         else:
@@ -414,8 +423,15 @@ class FireSpreadDataset(Dataset):
         x[:, self.indices_of_degree_features, ...] = torch.sin(
             torch.deg2rad(x[:, self.indices_of_degree_features, ...]))
 
-        # Compute binary mask of active fire pixels before normalization changes what 0 means. 
+        # Compute binary mask of active fire pixels before normalization changes what 0 means.
         binary_af_mask = (x[:, -1:, ...] > 0).float()
+
+        # WRF NetCDF sentinel-fill values (~1e+36) leak through BuildWRFWSTS for
+        # a couple of fires in channels 5/17. Treat them as missing so they don't
+        # blow up standardization and the loss. Cheap and harmless on the WSTS
+        # path (no values that large in the original data).
+        if self.wrf_data:
+            x = torch.where(x.abs() > WRF_SENTINEL_THRESHOLD, torch.nan, x)
 
         x = self.standardize_features(x)
 

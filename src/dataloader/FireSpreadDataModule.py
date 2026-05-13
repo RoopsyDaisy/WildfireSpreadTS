@@ -20,7 +20,7 @@ class FireSpreadDataModule(LightningDataModule):
                  data_fold_id: int = 0, non_outlier_indices_path: Optional[str] = None, filter_ignition_train: Optional[bool] = False, filter_ignition_val_test: Optional[bool] = False,
                  ignition_only_train: Optional[bool] = False, ignition_only_val_test: Optional[bool] = False, additional_data: Optional[bool] = False,
                  split_strategy: str = "spatial", spatial_split_axis: str = "lon", spatial_split_folds: int = 4,
-                 stats_years: Optional[List[int]] = None, *args, **kwargs):
+                 stats_years: Optional[List[int]] = None, wrf_data: bool = False, *args, **kwargs):
         """_summary_ Data module for loading the WildfireSpreadTS dataset.
 
         Args:
@@ -73,6 +73,7 @@ class FireSpreadDataModule(LightningDataModule):
         self.spatial_split_axis = spatial_split_axis
         self.spatial_split_folds = spatial_split_folds
         self.stats_years = stats_years
+        self.wrf_data = wrf_data
 
 
     def keep_ignition(self, dataset):
@@ -147,7 +148,8 @@ class FireSpreadDataModule(LightningDataModule):
                                                load_from_zarr=self.load_from_zarr,
                                                remove_duplicate_features=self.remove_duplicate_features,
                                                features_to_keep=self.features_to_keep, return_doy=self.return_doy,
-                                               stats_years=stats_years, is_pad=self.is_pad)
+                                               stats_years=stats_years, is_pad=self.is_pad,
+                                               wrf_data=self.wrf_data)
         
         if self.non_outlier_indices_path is not None:
             non_outlier_indices = np.load(self.non_outlier_indices_path).tolist()
@@ -170,7 +172,8 @@ class FireSpreadDataModule(LightningDataModule):
                                              load_from_zarr=self.load_from_zarr,
                                              remove_duplicate_features=self.remove_duplicate_features,
                                              features_to_keep=self.features_to_keep, return_doy=self.return_doy,
-                                             stats_years=stats_years, is_pad=self.is_pad)
+                                             stats_years=stats_years, is_pad=self.is_pad,
+                                             wrf_data=self.wrf_data)
         self.test_dataset = FireSpreadDataset(data_dir=self.data_dir, included_fire_years=test_years,
                                               included_fire_ids=test_fire_ids,
                                               n_leading_observations=self.n_leading_observations,
@@ -180,7 +183,8 @@ class FireSpreadDataModule(LightningDataModule):
                                               load_from_zarr=self.load_from_zarr,
                                               remove_duplicate_features=self.remove_duplicate_features,
                                               features_to_keep=self.features_to_keep, return_doy=self.return_doy,
-                                              stats_years=stats_years, is_pad=self.is_pad)
+                                              stats_years=stats_years, is_pad=self.is_pad,
+                                              wrf_data=self.wrf_data)
 
         if self.filter_ignition_val_test:
             self.val_dataset = self.filter_dataset(self.val_dataset)

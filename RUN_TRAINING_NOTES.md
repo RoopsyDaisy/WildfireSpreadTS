@@ -64,7 +64,7 @@ configs back-to-back with identical settings. Defaults:
 | `--epochs` | 50 |
 | `--batch` | 32 |
 | `--workers` | 16 |
-| `--out-dir` | `/tmp/lightning_logs` |
+| `--out-dir` | `${LIGHTNING_LOGS_DIR:-/run/data_raid5/scratch/lightning_logs}` (survives container rebuilds) |
 
 Useful flags:
 

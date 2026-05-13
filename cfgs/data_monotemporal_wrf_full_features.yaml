@@ -12,3 +12,8 @@ split_strategy: spatial
 spatial_split_axis: lon
 spatial_split_folds: 4
 stats_years: null
+# Use the WRF-flavoured per-channel means/stds (src/dataloader/wrf_stats.py)
+# instead of the WSTS+ baked-in stats, since channels 5-11 / 17-21 contain
+# WRF data with different distributions. Also enables the load-time
+# sentinel-fill clip in FireSpreadDataset.preprocess_and_augment.
+wrf_data: true

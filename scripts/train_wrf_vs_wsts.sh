@@ -20,7 +20,9 @@ EPOCHS=50
 BATCH=32
 WORKERS=16
 LOG_EVERY=25
-OUT_DIR=/tmp/lightning_logs
+# Default to a path on the data RAID so checkpoints survive container rebuilds.
+# Override via env var or --out-dir.
+OUT_DIR="${LIGHTNING_LOGS_DIR:-/run/data_raid5/scratch/lightning_logs}"
 WRF_ONLY=0
 
 while [[ $# -gt 0 ]]; do
