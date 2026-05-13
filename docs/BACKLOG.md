@@ -109,6 +109,22 @@ Pursue, Tangential Optimisations".
 - **Status:** open. (`scripts/podman_*.sh` and `run_in_project_env.sh`
   already deleted 2026-05-08.)
 
+### Devcontainer is podman-only (`--group-add=keep-groups`)
+- **Trigger:** added `--group-add=keep-groups` to `devcontainer.json` runArgs
+  2026-05-13 so host supplementary groups (e.g. `scratch_users`) propagate
+  into the container. Without it, `--userns=keep-id` maps only the user's
+  primary UID/GID and shared scratch dirs appear unwritable.
+- **Impact:** `keep-groups` is a podman-specific OCI annotation
+  (`run.oci.keep_original_groups=1`); Docker will error out on container
+  start. Anyone trying the devcontainer under Docker Desktop will hit it.
+- **Plan:** either document the podman requirement in the README, or fall
+  back to baking a fixed-GID `scratch_users` group into the Dockerfile
+  (`groupadd -g 1014 scratch_users && usermod -aG scratch_users vscode`)
+  which works on both runtimes but couples the image to the host's GID.
+- **Cost:** ~5 min for README note; ~15 min for the Dockerfile route.
+- **Status:** open — accept podman coupling for now since that's what
+  the lab runs.
+
 ### Decide on the `WildfireSpreadTS/` reference checkout
 - **Trigger:** the previous stale setup had a sibling clone of slahrichi's
   repo at `WFSTS/WildfireSpreadTS/` for reference. Wiped during setup. May

@@ -10,6 +10,11 @@
     "--device=nvidia.com/gpu=all",
     "--security-opt", "label=disable",
     "--userns=keep-id",
+    // Propagate host supplementary GIDs (e.g. scratch_users) into the container.
+    // Without this, --userns=keep-id maps only the user's primary UID/GID, so
+    // group-writable shared dirs (/run/data_raid5/scratch) appear unwritable.
+    // Podman-only — Docker doesn't support keep-groups. See docs/BACKLOG.md.
+    "--group-add=keep-groups",
     "--shm-size=16g"
   ],
 
